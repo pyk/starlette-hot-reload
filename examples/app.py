@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,6 +18,14 @@ from starlette_hot_reload import HotReload
 if TYPE_CHECKING:
     from starlette.requests import Request
     from starlette.responses import HTMLResponse
+
+# Enable debug logging to stderr
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stderr,
+)
 
 templates_dir = Path(__file__).parent / "templates"
 static_dir = Path(__file__).parent / "static"
@@ -55,4 +65,4 @@ hot_reload.setup(app)
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=3000)  # noqa: S104
+    uvicorn.run(app, host="0.0.0.0", port=3000, log_config=None)  # noqa: S104
