@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+from importlib.resources import files
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+
+_EVENTS_URL_PLACEHOLDER = "__STARLETTE_HOT_RELOAD_EVENTS_URL__"
+
+
+@lru_cache(maxsize=1)
+def _load_client_script() -> str:
+    """Load the client-side script from the package resources."""
+    return files("starlette_hot_reload").joinpath("client.js").read_text(
+        encoding="utf-8",
+    )
 
 
 class HotReloadMiddleware:
@@ -160,77 +173,8 @@ class HotReloadMiddleware:
 
     def _get_client_script(self, events_url: str) -> str:
         """Generate the client-side hot reload script."""
-        return f"""<script>
-(function() {{
-    const eventsUrl = "{events_url}";
-    let eventSource = null;
-    let reconnectAttempts = 0;
-    let shuttingDown = false;
-    const maxReconnectAttempts = 10;
-    const reconnectDelay = 1000;
-
-    function connect() {{
-        eventSource = new EventSource(eventsUrl);
-
-        eventSource.onopen = function() {{
-            console.log("[Hot Reload] Connected");
-            reconnectAttempts = 0;
-        }};
-
-        eventSource.onmessage = function(event) {{
-            const data = JSON.parse(event.data);
-            console.log("[Hot Reload]", data);
-
-            if (data.type === "shutdown") {{
-                shuttingDown = true;
-                eventSource.close();
-                return;
-            }}
-
-            if (data.type === "reload") {{
-                console.log("[Hot Reload] Reloading page...");
-                window.location.reload();
-            }} else if (data.type === "css") {{
-                console.log("[Hot Reload] CSS changed");
-                refreshCSS();
-            }}
-        }};
-
-        eventSource.onerror = function(error) {{
-            console.error("[Hot Reload] SSE error:", error);
-            if (shuttingDown) {{
-                return;
-            }}
-            eventSource.close();
-            attemptReconnect();
-        }};
-    }}
-
-    function attemptReconnect() {{
-        if (reconnectAttempts < maxReconnectAttempts) {{
-            reconnectAttempts++;
-            console.log(
-                "[Hot Reload] Reconnecting... " +
-                "(attempt " + reconnectAttempts + ")"
-            );
-            setTimeout(connect, reconnectDelay * reconnectAttempts);
-        }} else {{
-            console.log("[Hot Reload] Max reconnect attempts reached");
-        }}
-    }}
-
-    function refreshCSS() {{
-        const links = document.querySelectorAll(
-            'link[rel="stylesheet"]'
-        );
-        links.forEach(link => {{
-            const href = link.href;
-            const url = new URL(href);
-            url.searchParams.set("_hot_reload", Date.now().toString());
-            link.href = url.toString();
-        }});
-    }}
-
-    connect();
-}})();
-</script>"""
+        script = _load_client_script().replace(
+            _EVENTS_URL_PLACEHOLDER,
+            events_url,
+        )
+        return f"<script>\n{script}\n</script>"
