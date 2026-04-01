@@ -1,7 +1,7 @@
 [project]
 name = "starlette-hot-reload"
 version = "0.1.0"
-description = "Add your description here"
+description = "Hot reload for Starlette app with smart asset updates and HTML injection"
 readme = "README.md"
 authors = [
     { name = "pyk", email = "2213646+pyk@users.noreply.github.com" }
