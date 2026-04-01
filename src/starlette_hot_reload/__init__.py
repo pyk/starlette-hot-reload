@@ -37,6 +37,7 @@ class HotReload:
         self,
         watch_dirs: list[str | Path] | None = None,
         events_path: str = "/__starlette_hot_reload",
+        poll_interval: float = 0.25,
     ) -> None:
         """Initialize hot reload configuration.
 
@@ -44,10 +45,12 @@ class HotReload:
             watch_dirs: Directories to watch for changes.
                 If None, watches the current directory.
             events_path: Path for the Server-Sent Events endpoint.
+            poll_interval: Seconds between filesystem scans.
 
         """
         self.watch_dirs = watch_dirs
         self.events_path = events_path
+        self.poll_interval = poll_interval
 
     def setup(self, app: Starlette) -> None:
         """Set up hot reload for a Starlette application.
@@ -65,7 +68,10 @@ class HotReload:
         if not getattr(app, "debug", False):
             return
 
-        watcher = FileWatcher([str(d) for d in (self.watch_dirs or ["."])])
+        watcher = FileWatcher(
+            [str(d) for d in (self.watch_dirs or ["."])],
+            poll_interval=self.poll_interval,
+        )
 
         async def events_endpoint(request: Request) -> StreamingResponse:
             return await HotReloadEvents(watcher).handle(request)

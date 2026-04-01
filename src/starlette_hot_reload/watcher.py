@@ -28,6 +28,7 @@ class FileWatcher:
         self,
         watch_dirs: list[str] | None = None,
         extensions: list[str] | None = None,
+        poll_interval: float = 0.25,
     ) -> None:
         """Initialize the file watcher.
 
@@ -35,12 +36,14 @@ class FileWatcher:
             watch_dirs: Directories to watch. Defaults to current directory.
             extensions: File extensions to watch.
                 Defaults to common web files.
+            poll_interval: Seconds between filesystem scans.
 
         """
         self.watch_dirs = [
             Path(d) if isinstance(d, str) else d for d in (watch_dirs or ["."])
         ]
         self.extensions = extensions or [".py", ".html", ".js", ".css", ".json"]
+        self.poll_interval = poll_interval
         self.clients: set[asyncio.Queue[dict]] = set()
         self._stop_event: anyio.Event | None = None
         self._watch_task: asyncio.Task | None = None
@@ -234,12 +237,12 @@ class FileWatcher:
                     await self._notify_all(change_type, changes)
 
                 # Wait before next scan
-                await anyio.sleep(1.0)
+                await anyio.sleep(self.poll_interval)
 
             except OSError as e:
                 # Log error but continue watching
                 logger.warning("Watch error: %s", e)
-                await anyio.sleep(1.0)
+                await anyio.sleep(self.poll_interval)
 
     def _scan_changes(
         self,
