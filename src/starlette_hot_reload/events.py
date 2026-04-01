@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import TYPE_CHECKING
 
 from starlette.responses import StreamingResponse
@@ -15,52 +16,59 @@ if TYPE_CHECKING:
 
     from starlette_hot_reload.watcher import FileWatcher
 
+logger = logging.getLogger(__name__)
+
 
 class HotReloadEvents:
     """Handles Server-Sent Events connections for hot reload."""
 
     def __init__(self, watcher: FileWatcher) -> None:
-        """Initialize with a file watcher instance.
-
-        Args:
-            watcher: The file watcher that monitors for changes.
-
-        """
+        """Initialize with a file watcher instance."""
         self.watcher = watcher
 
-    async def handle(self, _request: Request) -> StreamingResponse:
-        """Handle an SSE connection.
-
-        Args:
-            _request: The HTTP request (unused).
-
-        Returns:
-            StreamingResponse: SSE stream response.
-
-        """
-        # Create a queue for this client
+    async def handle(self, request: Request) -> StreamingResponse:
+        """Handle an SSE connection."""
         queue: asyncio.Queue[dict] = asyncio.Queue()
         await self.watcher.add_client(queue)
+        logger.debug("SSE client connected, total: %d", len(self.watcher.clients))
 
         async def event_generator() -> AsyncIterator[str]:
             """Generate SSE events."""
             try:
                 while True:
-                    # Wait for a message from the watcher
-                    message = await queue.get()
-
-                    # Check for shutdown signal
-                    if message.get("type") == "shutdown":
+                    # Check shutdown first
+                    if self.watcher.is_shutting_down():
+                        logger.debug("Shutdown detected, closing SSE")
                         break
 
-                    # Format as SSE: data: {...}\n\n
+                    # Check client disconnected
+                    if await request.is_disconnected():
+                        logger.debug("Client disconnected")
+                        break
+
+                    # Wait for message with short timeout
+                    try:
+                        message = await asyncio.wait_for(queue.get(), timeout=0.5)
+                    except TimeoutError:
+                        continue
+
+                    if message.get("type") == "shutdown":
+                        yield f"data: {json.dumps(message)}\n\n"
+                        break
+
                     yield f"data: {json.dumps(message)}\n\n"
+
             except asyncio.CancelledError:
-                # Client disconnected, exit gracefully
-                pass
+                logger.debug("SSE cancelled (server shutdown)")
+                raise  # Re-raise to allow proper task cancellation
+            except GeneratorExit:
+                logger.debug("SSE generator exited")
+                raise  # Re-raise to allow proper generator cleanup
             finally:
-                # Clean up when client disconnects
                 await self.watcher.remove_client(queue)
+                logger.debug(
+                    "SSE client removed, remaining: %d", len(self.watcher.clients)
+                )
 
         return StreamingResponse(
             event_generator(),
@@ -68,6 +76,5 @@ class HotReloadEvents:
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",  # Disable nginx buffering
             },
         )

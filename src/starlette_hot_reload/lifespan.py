@@ -16,79 +16,75 @@ logger = logging.getLogger(__name__)
 
 
 class HotReloadLifespanMiddleware:
-    """ASGI middleware that manages file watcher lifecycle via lifespan protocol.
-
-    This middleware intercepts lifespan protocol messages to start the file
-    watcher on startup and stop it on shutdown. It passes through all other
-    ASGI messages unchanged.
-
-    Usage:
-        from starlette.applications import Starlette
-        from starlette_hot_reload.watcher import FileWatcher
-        from starlette_hot_reload.lifespan import HotReloadLifespanMiddleware
-
-        watcher = FileWatcher(watch_dirs=["templates"])
-        middleware = HotReloadLifespanMiddleware(app, watcher)
-
-    """
+    """ASGI middleware for hot reload lifespan and HTTP management."""
 
     def __init__(self, app: ASGIApp, watcher: FileWatcher) -> None:
-        """Initialize the lifespan middleware.
-
-        Args:
-            app: The ASGI application to wrap.
-            watcher: The file watcher to manage.
-
-        """
+        """Initialize middleware."""
         self.app = app
         self.watcher = watcher
         self._started = False
+        self._shutting_down = False
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Handle ASGI messages.
+        """Handle ASGI messages."""
+        if scope["type"] == "http":
+            await self._handle_http(scope, receive, send)
+            return
 
-        Intercepts lifespan messages to manage the watcher, passes all
-        other messages through to the wrapped app.
-
-        """
         if scope["type"] != "lifespan":
-            # Not a lifespan message, pass through
             await self.app(scope, receive, send)
             return
 
+        await self._handle_lifespan(scope, receive, send)
+
+    async def _handle_http(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Handle HTTP scope with shutdown detection."""
+
+        async def wrapped_send(message: Message) -> None:
+            """Send with shutdown detection."""
+            if self._shutting_down:
+                logger.debug("HTTP send while shutting down, aborting")
+                raise asyncio.CancelledError
+            await send(message)
+
+        try:
+            await self.app(scope, receive, wrapped_send)
+        except asyncio.CancelledError:
+            logger.debug("HTTP request cancelled during shutdown")
+            raise
+
+    async def _handle_lifespan(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Handle lifespan scope."""
+        logger.debug("Lifespan started")
+
         async def wrapped_receive() -> Message:
-            """Receive and intercept lifespan messages."""
+            """Receive lifespan messages."""
             message = await receive()
 
-            # Start the file watcher on lifespan.startup if not already started
             if message["type"] == "lifespan.startup" and not self._started:
-                logger.debug("Starting file watcher (lifespan.startup)")
+                logger.debug("Starting file watcher")
                 await self.watcher.start()
                 self._started = True
-                logger.debug("File watcher started")
 
-            # Stop the file watcher on lifespan.shutdown (before shutdown.complete)
-            # This ensures SSE connections close before uvicorn waits for them
             if message["type"] == "lifespan.shutdown" and self._started:
                 logger.debug("Stopping file watcher (lifespan.shutdown)")
+                self._shutting_down = True
                 await self.watcher.stop()
                 self._started = False
-                logger.debug("File watcher stopped")
 
             return message
 
-        async def wrapped_send(message: Message) -> None:
-            """Send and intercept lifespan responses."""
-            with suppress(asyncio.CancelledError):
-                await send(message)
-
         try:
-            await self.app(scope, wrapped_receive, wrapped_send)
+            await self.app(scope, wrapped_receive, send)
         except asyncio.CancelledError:
-            # Server is shutting down, stop watcher if running
+            logger.debug("Lifespan cancelled, forcing shutdown")
+            self._shutting_down = True
             if self._started:
-                logger.debug("Stopping file watcher (cancelled)")
                 with suppress(asyncio.CancelledError):
                     await self.watcher.stop()
                 self._started = False
             raise
+        finally:
+            logger.debug("Lifespan ended")

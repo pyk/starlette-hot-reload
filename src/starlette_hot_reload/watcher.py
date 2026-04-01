@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import signal
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import anyio
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,18 @@ class FileWatcher:
         self.clients: set[asyncio.Queue[dict]] = set()
         self._stop_event: anyio.Event | None = None
         self._watch_task: asyncio.Task | None = None
+        self._shutdown_event: asyncio.Event = asyncio.Event()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._signal_handlers: dict[int, object] = {}
+        self._shutdown_task: asyncio.Task | None = None
+
+    def is_shutting_down(self) -> bool:
+        """Check if the watcher is shutting down."""
+        return self._shutdown_event.is_set()
+
+    def wait_for_shutdown(self) -> asyncio.Event:
+        """Get the shutdown event for waiting."""
+        return self._shutdown_event
 
     @asynccontextmanager
     async def run(self) -> AsyncIterator[FileWatcher]:
@@ -72,28 +85,47 @@ class FileWatcher:
             return
 
         logger.debug("Starting file watcher")
+        self._loop = asyncio.get_running_loop()
         self._stop_event = anyio.Event()
         self._watch_task = asyncio.create_task(self._watch_all_directories())
+        self._install_signal_handlers()
         logger.debug("File watcher started")
 
     async def stop(self) -> None:
         """Stop watching files."""
+        logger.debug("stop() called, _watch_task is None: %s", self._watch_task is None)
         if self._watch_task is None:
+            logger.debug("stop(): watch_task is None, returning early")
             return
 
         logger.debug("Stopping file watcher")
+
+        # Signal that we're shutting down (this allows SSE connections to close)
+        logger.debug("stop(): Setting shutdown event")
+        self._shutdown_event.set()
+        logger.debug("stop(): shutdown_event is set: %s", self._shutdown_event.is_set())
+
         if self._stop_event is not None:
+            logger.debug("stop(): Setting stop event")
             self._stop_event.set()
 
         # Signal all clients to disconnect
+        logger.debug("stop(): Signaling %d clients", len(self.clients))
         await self._signal_shutdown()
+        logger.debug("stop(): Done signaling clients")
 
         self._watch_task.cancel()
+        logger.debug("stop(): Cancelled watch task, awaiting...")
         with suppress(asyncio.CancelledError):
             await self._watch_task
+        logger.debug("stop(): Watch task awaited")
 
+        self._remove_signal_handlers()
         self._watch_task = None
         self._stop_event = None
+        self._shutdown_event.clear()
+        self._loop = None
+        self._shutdown_task = None
         logger.debug("File watcher stopped")
 
     async def _signal_shutdown(self) -> None:
@@ -102,6 +134,57 @@ class FileWatcher:
         for queue in list(self.clients):
             with suppress(asyncio.QueueFull, RuntimeError):
                 queue.put_nowait(shutdown_msg)
+
+    def _install_signal_handlers(self) -> None:
+        """Install signal handlers that trigger watcher shutdown."""
+        if self._loop is None:
+            return
+
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            try:
+                previous = signal.getsignal(signum)
+                if previous is self._handle_signal:
+                    continue
+                signal.signal(signum, self._handle_signal)
+                self._signal_handlers[signum] = previous
+            except (ValueError, OSError, RuntimeError):
+                # Signals are not always available, e.g. in non-main threads.
+                continue
+
+    def _remove_signal_handlers(self) -> None:
+        """Restore any signal handlers we replaced."""
+        for signum, previous in list(self._signal_handlers.items()):
+            try:
+                if signal.getsignal(signum) is self._handle_signal:
+                    signal.signal(signum, cast("signal.Handlers", previous))
+            except (ValueError, OSError, RuntimeError):
+                continue
+        self._signal_handlers.clear()
+
+    def _handle_signal(self, signum: int, frame: object | None) -> None:
+        """Bridge process shutdown signals into the async shutdown path."""
+        logger.debug("Received shutdown signal: %s", signum)
+        self._shutdown_event.set()
+        if self._stop_event is not None:
+            self._stop_event.set()
+
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self._request_shutdown)
+
+        previous = self._signal_handlers.get(signum)
+        if callable(previous) and previous is not signal.default_int_handler:
+            handler = cast("Callable[[int, object | None], object]", previous)
+            handler(signum, frame)
+
+    def _request_shutdown(self) -> None:
+        """Schedule a best-effort async shutdown."""
+        if self._watch_task is None:
+            return
+
+        if self._shutdown_task is not None and not self._shutdown_task.done():
+            return
+
+        self._shutdown_task = asyncio.create_task(self.stop())
 
     async def _watch_all_directories(self) -> None:
         """Watch all directories for changes."""

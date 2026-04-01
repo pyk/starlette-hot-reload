@@ -4,32 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import HTMLResponse
-
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from starlette.requests import Request
-    from starlette.responses import Response
-    from starlette.types import ASGIApp
+    from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
-class HotReloadMiddleware(BaseHTTPMiddleware):
-    """Middleware that injects hot reload script into HTML responses.
+class HotReloadMiddleware:
+    """ASGI middleware that injects the hot reload script into HTML responses.
 
-    Automatically detects HTML responses and injects the client-side
-    hot reload script before the closing </body> tag.
-
-    Usage:
-        from starlette.applications import Starlette
-        from starlette_hot_reload import HotReloadMiddleware
-
-        app = Starlette()
-        app.add_middleware(
-            HotReloadMiddleware,
-            events_path="/__starlette_hot_reload",
-        )
+    This is implemented as a plain ASGI wrapper instead of BaseHTTPMiddleware.
+    That avoids the extra task-group machinery that can interfere with streaming
+    responses and shutdown behavior.
     """
 
     def __init__(
@@ -39,59 +23,140 @@ class HotReloadMiddleware(BaseHTTPMiddleware):
         *,
         inject_before_body: bool = True,
     ) -> None:
-        """Initialize the middleware.
-
-        Args:
-            app: The ASGI application.
-            events_path: Path to the Server-Sent Events endpoint for hot reload.
-            inject_before_body: Whether to inject before </body>
-                or at end of response.
-
-        """
-        super().__init__(app)
+        """Initialize the middleware."""
+        self.app = app
         self.events_path = events_path
         self.inject_before_body = inject_before_body
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        """Process request and inject script if response is HTML."""
-        response = await call_next(request)
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Dispatch HTTP requests through the injection path."""
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        # Only inject in debug mode
-        if not getattr(request.app, "debug", False):
-            return response
+        await self._handle_http(scope, receive, send)
 
-        # Only process HTML responses
-        content_type = response.headers.get("content-type", "")
-        if "text/html" not in content_type:
-            return response
+    async def _handle_http(self, scope: Scope, receive: Receive, send: Send) -> None:
+        response_start: Message | None = None
+        body_chunks: list[bytes] = []
+        is_html_response = False
+        sent_start = False
 
-        # Build the SSE URL
-        events_url = f"{request.url.scheme}://{request.url.netloc}{self.events_path}"
+        async def wrapped_send(message: Message) -> None:
+            nonlocal response_start, body_chunks, is_html_response, sent_start
 
-        # Generate the client script
+            if message["type"] == "http.response.start":
+                response_start = message
+                headers = self._headers_from_message(message)
+                content_type = headers.get("content-type", "")
+                is_html_response = "text/html" in content_type
+
+                if not is_html_response:
+                    sent_start = True
+                    await send(message)
+                return
+
+            if message["type"] != "http.response.body":
+                await send(message)
+                return
+
+            if not is_html_response:
+                await send(message)
+                return
+
+            body_chunks.append(message.get("body", b""))
+            if message.get("more_body", False):
+                return
+
+            if response_start is None:
+                return
+            content = b"".join(body_chunks)
+            modified_body = self._maybe_inject_script(scope, content)
+
+            start_message = self._rewrite_start_message(
+                response_start,
+                len(modified_body),
+            )
+            if not sent_start:
+                await send(start_message)
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": modified_body,
+                    "more_body": False,
+                }
+            )
+
+        await self.app(scope, receive, wrapped_send)
+
+    def _maybe_inject_script(self, scope: Scope, body: bytes) -> bytes:
+        """Inject the client-side script into HTML bodies when possible."""
+        try:
+            content = body.decode("utf-8")
+        except UnicodeDecodeError:
+            return body
+
+        events_url = self._build_events_url(scope)
         script = self._get_client_script(events_url)
 
-        # Modify the response body
-        body = b""
-        async for chunk in response.body_iterator:
-            body += chunk
-
-        content = body.decode("utf-8")
-
-        # Inject the script
         if self.inject_before_body and "</body>" in content:
             content = content.replace("</body>", f"{script}</body>")
         else:
             content = content + script
 
-        # Return new response with modified content
-        new_headers = dict(response.headers)
-        new_headers.pop("content-length", None)
-        return HTMLResponse(
-            content=content,
-            status_code=response.status_code,
-            headers=new_headers,
-        )
+        return content.encode("utf-8")
+
+    def _build_events_url(self, scope: Scope) -> str:
+        """Build the absolute SSE URL for the current request."""
+        scheme = scope.get("scheme", "http")
+        headers = self._headers_from_scope(scope)
+        host = headers.get("host")
+
+        if host:
+            return f"{scheme}://{host}{self.events_path}"
+
+        server = scope.get("server")
+        if isinstance(server, tuple):
+            try:
+                host_name, port = server
+            except ValueError:
+                pass
+            else:
+                if port is not None:
+                    return f"{scheme}://{host_name}:{port}{self.events_path}"
+                return f"{scheme}://{host_name}{self.events_path}"
+
+        return f"{scheme}://localhost{self.events_path}"
+
+    def _headers_from_message(self, message: Message) -> dict[str, str]:
+        """Convert ASGI raw headers into a lowercase header mapping."""
+        raw_headers = message.get("headers", [])
+        return {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in raw_headers
+        }
+
+    def _headers_from_scope(self, scope: Scope) -> dict[str, str]:
+        """Convert ASGI request headers into a lowercase header mapping."""
+        raw_headers = scope.get("headers", [])
+        return {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in raw_headers
+        }
+
+    def _rewrite_start_message(self, message: Message, body_length: int) -> Message:
+        """Rewrite response headers after HTML injection."""
+        headers = [
+            (key, value)
+            for key, value in message.get("headers", [])
+            if key.lower() != b"content-length"
+        ]
+        headers.append((b"content-length", str(body_length).encode("latin-1")))
+
+        return {
+            **message,
+            "headers": headers,
+        }
 
     def _get_client_script(self, events_url: str) -> str:
         """Generate the client-side hot reload script."""
@@ -100,6 +165,7 @@ class HotReloadMiddleware(BaseHTTPMiddleware):
     const eventsUrl = "{events_url}";
     let eventSource = null;
     let reconnectAttempts = 0;
+    let shuttingDown = false;
     const maxReconnectAttempts = 10;
     const reconnectDelay = 1000;
 
@@ -115,6 +181,12 @@ class HotReloadMiddleware(BaseHTTPMiddleware):
             const data = JSON.parse(event.data);
             console.log("[Hot Reload]", data);
 
+            if (data.type === "shutdown") {{
+                shuttingDown = true;
+                eventSource.close();
+                return;
+            }}
+
             if (data.type === "reload") {{
                 console.log("[Hot Reload] Reloading page...");
                 window.location.reload();
@@ -126,6 +198,9 @@ class HotReloadMiddleware(BaseHTTPMiddleware):
 
         eventSource.onerror = function(error) {{
             console.error("[Hot Reload] SSE error:", error);
+            if (shuttingDown) {{
+                return;
+            }}
             eventSource.close();
             attemptReconnect();
         }};
