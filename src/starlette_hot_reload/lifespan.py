@@ -67,17 +67,18 @@ class HotReloadLifespanMiddleware:
                 self._started = True
                 logger.debug("File watcher started")
 
-            return message
-
-        async def wrapped_send(message: Message) -> None:
-            """Send and intercept lifespan responses."""
-            # Stop the file watcher when shutdown is complete
-            if message["type"] == "lifespan.shutdown.complete" and self._started:
+            # Stop the file watcher on lifespan.shutdown (before shutdown.complete)
+            # This ensures SSE connections close before uvicorn waits for them
+            if message["type"] == "lifespan.shutdown" and self._started:
                 logger.debug("Stopping file watcher (lifespan.shutdown)")
                 await self.watcher.stop()
                 self._started = False
                 logger.debug("File watcher stopped")
 
+            return message
+
+        async def wrapped_send(message: Message) -> None:
+            """Send and intercept lifespan responses."""
             with suppress(asyncio.CancelledError):
                 await send(message)
 
