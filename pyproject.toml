@@ -22,3 +22,23 @@ dev = [
     "ty>=0.0.27",
     "uvicorn>=0.42.0",
 ]
+
+# ty - settings
+[tool.ty.src]
+exclude = ["external"]
+
+# ruff - settings
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # D212 and D213 are incompatible; we use D212 (summary on first line)
+    "D213",
+    # D203 and D211 are incompatible; we use D211 (no blank line before class)
+    "D203",
+    # Trailing comma rule conflict with formatter
+    "COM812",
+]
+exclude = ["external/**"]
+
+[tool.ruff.lint.pylint]
+max-args = 5
