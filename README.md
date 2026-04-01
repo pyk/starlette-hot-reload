@@ -4,6 +4,8 @@
 [Starlette](https://starlette.dev/) that provides fast in-browser reloads for
 templates and static files.
 
+[Demo](https://x.com/sepyke/status/2039360612229374135)
+
 It integrates directly with your Starlette app and provides:
 
 - Automatic HTML injection via middleware.
