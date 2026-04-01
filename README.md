@@ -7,10 +7,11 @@ templates and static files.
 It integrates directly with your Starlette app and provides:
 
 - Automatic HTML injection via middleware.
-- WebSocket-based live reload.
+- Server-Sent Events (SSE) based live reload (no WebSocket dependencies).
 - Smart updates, CSS changes reload without a full page refresh.
 - Automatic reconnection with exponential backoff.
 - Fully typed, following Starlette patterns.
+- Zero additional dependencies beyond Starlette.
 
 ## Installation
 
@@ -38,9 +39,7 @@ app = Starlette(
 )
 
 # Set up hot reload (only active when debug=True)
-hot_reload = HotReload(
-    watch_dirs=["templates", "static"],
-)
+hot_reload = HotReload(watch_dirs=["templates", "static"])
 hot_reload.setup(app)
 ```
 
@@ -54,10 +53,11 @@ $ uvicorn main:app
 
 `starlette-hot-reload` updates the browser without restarting the server.
 
-It integrates into your app using middleware and a WebSocket endpoint.
+It integrates into your app using middleware and a Server-Sent Events (SSE)
+endpoint.
 
 - HTML responses are automatically modified to include a small client script.
-- The client connects to a WebSocket server exposed by the app.
+- The client connects to an SSE stream exposed by the app.
 - File changes trigger reload events:
     - CSS changes update stylesheets in-place.
     - Other changes trigger a full page reload.
@@ -80,6 +80,39 @@ You can control which directories are watched:
 
 ```python
 HotReload(watch_dirs=["templates", "static", "assets"])
+```
+
+You can customize the SSE endpoint path (default is `/__starlette_hot_reload`):
+
+```python
+hot_reload = HotReload(
+    watch_dirs=["templates", "static"],
+    events_path="/custom-events-path",
+)
+```
+
+You can also tune how often the watcher scans for changes. Lower values make
+reloads feel faster, at the cost of a bit more filesystem polling:
+
+```python
+hot_reload = HotReload(
+    watch_dirs=["templates", "static"],
+    poll_interval=0.25,
+)
+```
+
+### Debug Logging
+
+To enable debug logging, configure Python's logging module:
+
+```python
+import logging
+import sys
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    # ...
+)
 ```
 
 ## License
