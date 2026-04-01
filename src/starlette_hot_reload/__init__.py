@@ -2,25 +2,25 @@
 
 from typing import TYPE_CHECKING
 
-from starlette.routing import WebSocketRoute
-
+from starlette_hot_reload.events import HotReloadEvents
+from starlette_hot_reload.lifespan import HotReloadLifespanMiddleware
 from starlette_hot_reload.middleware import HotReloadMiddleware
 from starlette_hot_reload.watcher import FileWatcher
-from starlette_hot_reload.websocket import HotReloadWebSocket
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from starlette.applications import Starlette
-    from starlette.websockets import WebSocket
+    from starlette.requests import Request
+    from starlette.responses import StreamingResponse
 
 
 class HotReload:
     """Hot reload configuration for Starlette applications.
 
     This class provides a simple way to enable hot reloading in your
-    Starlette application. It automatically adds the necessary WebSocket
-    route and middleware when the app is in debug mode.
+    Starlette application. It automatically adds the necessary SSE
+    endpoint and middleware when the app is in debug mode.
 
     Usage:
         from starlette.applications import Starlette
@@ -36,24 +36,27 @@ class HotReload:
     def __init__(
         self,
         watch_dirs: list[str | Path] | None = None,
-        ws_path: str = "/__starlette_hot_reload",
+        events_path: str = "/__starlette_hot_reload",
     ) -> None:
         """Initialize hot reload configuration.
 
         Args:
             watch_dirs: Directories to watch for changes.
                 If None, watches the current directory.
-            ws_path: Path for the WebSocket endpoint.
+            events_path: Path for the Server-Sent Events endpoint.
 
         """
         self.watch_dirs = watch_dirs
-        self.ws_path = ws_path
+        self.events_path = events_path
 
     def setup(self, app: Starlette) -> None:
         """Set up hot reload for a Starlette application.
 
-        Automatically adds the WebSocket route and middleware only when
+        Automatically adds the SSE endpoint and middleware only when
         the app is in debug mode.
+
+        This method adds middleware that manages the file watcher lifecycle
+        automatically via the ASGI lifespan protocol.
 
         Args:
             app: The Starlette application instance.
@@ -64,16 +67,30 @@ class HotReload:
 
         watcher = FileWatcher([str(d) for d in (self.watch_dirs or ["."])])
 
-        async def websocket_endpoint(websocket: WebSocket) -> None:
-            await HotReloadWebSocket(watcher).handle(websocket)
+        async def events_endpoint(request: Request) -> StreamingResponse:
+            return await HotReloadEvents(watcher).handle(request)
 
-        # Add the WebSocket route
-        app.routes.append(
-            WebSocketRoute(self.ws_path, websocket_endpoint, name="hot_reload_ws")
+        # Add the SSE route
+        app.add_route(
+            self.events_path,
+            events_endpoint,
+            methods=["GET"],
+            name="hot_reload_events",
         )
 
-        # Add the middleware
-        app.add_middleware(HotReloadMiddleware)
+        # Add the middleware for HTML injection
+        app.add_middleware(
+            HotReloadMiddleware,
+            events_path=self.events_path,
+        )
+
+        # Add lifespan middleware to manage the watcher lifecycle
+        # This must be added last so it's the outermost middleware
+        # and can intercept lifespan messages before they reach the router
+        app.add_middleware(
+            HotReloadLifespanMiddleware,
+            watcher=watcher,
+        )
 
 
 __all__ = ["HotReload"]

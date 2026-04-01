@@ -23,19 +23,19 @@ class HotReloadMiddleware(BaseHTTPMiddleware):
 
     Usage:
         from starlette.applications import Starlette
-        from acme.ui.hot_reload import HotReloadMiddleware
+        from starlette_hot_reload import HotReloadMiddleware
 
         app = Starlette()
         app.add_middleware(
             HotReloadMiddleware,
-            ws_path="/__hot_reload_ws",
+            events_path="/__starlette_hot_reload",
         )
     """
 
     def __init__(
         self,
         app: ASGIApp,
-        ws_path: str = "/__hot_reload_ws",
+        events_path: str = "/__starlette_hot_reload",
         *,
         inject_before_body: bool = True,
     ) -> None:
@@ -43,13 +43,13 @@ class HotReloadMiddleware(BaseHTTPMiddleware):
 
         Args:
             app: The ASGI application.
-            ws_path: Path to the WebSocket endpoint for hot reload.
+            events_path: Path to the Server-Sent Events endpoint for hot reload.
             inject_before_body: Whether to inject before </body>
                 or at end of response.
 
         """
         super().__init__(app)
-        self.ws_path = ws_path
+        self.events_path = events_path
         self.inject_before_body = inject_before_body
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -65,12 +65,11 @@ class HotReloadMiddleware(BaseHTTPMiddleware):
         if "text/html" not in content_type:
             return response
 
-        # Build the WebSocket URL
-        ws_scheme = "wss" if request.url.scheme == "https" else "ws"
-        ws_url = f"{ws_scheme}://{request.url.netloc}{self.ws_path}"
+        # Build the SSE URL
+        events_url = f"{request.url.scheme}://{request.url.netloc}{self.events_path}"
 
         # Generate the client script
-        script = self._get_client_script(ws_url)
+        script = self._get_client_script(events_url)
 
         # Modify the response body
         body = b""
@@ -94,25 +93,25 @@ class HotReloadMiddleware(BaseHTTPMiddleware):
             headers=new_headers,
         )
 
-    def _get_client_script(self, ws_url: str) -> str:
+    def _get_client_script(self, events_url: str) -> str:
         """Generate the client-side hot reload script."""
         return f"""<script>
 (function() {{
-    const wsUrl = "{ws_url}";
-    let ws = null;
+    const eventsUrl = "{events_url}";
+    let eventSource = null;
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 10;
     const reconnectDelay = 1000;
 
     function connect() {{
-        ws = new WebSocket(wsUrl);
+        eventSource = new EventSource(eventsUrl);
 
-        ws.onopen = function() {{
+        eventSource.onopen = function() {{
             console.log("[Hot Reload] Connected");
             reconnectAttempts = 0;
         }};
 
-        ws.onmessage = function(event) {{
+        eventSource.onmessage = function(event) {{
             const data = JSON.parse(event.data);
             console.log("[Hot Reload]", data);
 
@@ -125,13 +124,10 @@ class HotReloadMiddleware(BaseHTTPMiddleware):
             }}
         }};
 
-        ws.onclose = function() {{
-            console.log("[Hot Reload] Disconnected");
+        eventSource.onerror = function(error) {{
+            console.error("[Hot Reload] SSE error:", error);
+            eventSource.close();
             attemptReconnect();
-        }};
-
-        ws.onerror = function(error) {{
-            console.error("[Hot Reload] WebSocket error:", error);
         }};
     }}
 

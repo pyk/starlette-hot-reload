@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -12,9 +13,6 @@ import anyio
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from types import TracebackType
-
-    from starlette.websockets import WebSocket
 
 logger = logging.getLogger(__name__)
 
@@ -42,56 +40,82 @@ class FileWatcher:
             Path(d) if isinstance(d, str) else d for d in (watch_dirs or ["."])
         ]
         self.extensions = extensions or [".py", ".html", ".js", ".css", ".json"]
-        self.clients: set[WebSocket] = set()
-        self._task_group = None
-        self._stop_event: anyio.Event | None = anyio.Event()
+        self.clients: set[asyncio.Queue[dict]] = set()
+        self._stop_event: anyio.Event | None = None
+        self._watch_task: asyncio.Task | None = None
 
     @asynccontextmanager
-    async def __aenter__(self) -> AsyncIterator[FileWatcher]:
-        """Async context manager entry."""
+    async def run(self) -> AsyncIterator[FileWatcher]:
+        """Run the file watcher as an async context manager.
+
+        Usage:
+            async with watcher.run():
+                # watcher is now running
+                await asyncio.sleep_forever()
+
+        """
         await self.start()
         try:
             yield self
         finally:
             await self.stop()
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        """Async context manager exit."""
-
     async def start(self) -> None:
-        """Start watching files."""
-        async with anyio.create_task_group() as tg:
-            self._task_group = tg
-            for watch_dir in self.watch_dirs:
-                tg.start_soon(self._watch_directory, watch_dir)
+        """Start watching files.
+
+        This creates a task that continuously watches for file changes.
+        Use stop() to stop watching.
+
+        """
+        if self._watch_task is not None:
+            logger.debug("File watcher already running")
+            return
+
+        logger.debug("Starting file watcher")
+        self._stop_event = anyio.Event()
+        self._watch_task = asyncio.create_task(self._watch_all_directories())
+        logger.debug("File watcher started")
 
     async def stop(self) -> None:
         """Stop watching files."""
-        if self._stop_event:
+        if self._watch_task is None:
+            return
+
+        logger.debug("Stopping file watcher")
+        if self._stop_event is not None:
             self._stop_event.set()
 
-    async def add_client(self, websocket: WebSocket) -> None:
-        """Add a WebSocket client to notify.
+        self._watch_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await self._watch_task
+
+        self._watch_task = None
+        self._stop_event = None
+        logger.debug("File watcher stopped")
+
+    async def _watch_all_directories(self) -> None:
+        """Watch all directories for changes."""
+        async with anyio.create_task_group() as tg:
+            for watch_dir in self.watch_dirs:
+                tg.start_soon(self._watch_directory, watch_dir)
+
+    async def add_client(self, queue: asyncio.Queue[dict]) -> None:
+        """Add an SSE client queue to notify.
 
         Args:
-            websocket: WebSocket connection to add.
+            queue: Asyncio queue to add.
 
         """
-        self.clients.add(websocket)
+        self.clients.add(queue)
 
-    async def remove_client(self, websocket: WebSocket) -> None:
-        """Remove a WebSocket client.
+    async def remove_client(self, queue: asyncio.Queue[dict]) -> None:
+        """Remove an SSE client queue.
 
         Args:
-            websocket: WebSocket connection to remove.
+            queue: Asyncio queue to remove.
 
         """
-        self.clients.discard(websocket)
+        self.clients.discard(queue)
 
     async def _watch_directory(self, watch_dir: Path) -> None:
         """Watch a directory for changes.
@@ -179,15 +203,19 @@ class FileWatcher:
             "files": [str(f) for f in changes],
         }
 
-        # Send to all clients
-        disconnected: set[WebSocket] = set()
-        for client in self.clients:
+        # Send to all clients via their queues
+        disconnected: set[asyncio.Queue[dict]] = set()
+        for queue in self.clients:
             try:
-                await client.send_json(message)
-            except OSError:
-                # Mark for removal
-                disconnected.add(client)
+                # Try to put message without blocking
+                queue.put_nowait(message)
+            except asyncio.QueueFull:
+                # Queue is full, mark as disconnected
+                disconnected.add(queue)
+            except RuntimeError, OSError:
+                # Queue is closed or other error, mark as disconnected
+                disconnected.add(queue)
 
         # Remove disconnected clients
-        for client in disconnected:
-            self.clients.discard(client)
+        for queue in disconnected:
+            self.clients.discard(queue)
