@@ -86,10 +86,12 @@ class HotReloadMiddleware(BaseHTTPMiddleware):
             content = content + script
 
         # Return new response with modified content
+        new_headers = dict(response.headers)
+        new_headers.pop("content-length", None)
         return HTMLResponse(
             content=content,
             status_code=response.status_code,
-            headers=dict(response.headers),
+            headers=new_headers,
         )
 
     def _get_client_script(self, ws_url: str) -> str:
