@@ -85,6 +85,9 @@ class FileWatcher:
         if self._stop_event is not None:
             self._stop_event.set()
 
+        # Signal all clients to disconnect
+        await self._signal_shutdown()
+
         self._watch_task.cancel()
         with suppress(asyncio.CancelledError):
             await self._watch_task
@@ -92,6 +95,13 @@ class FileWatcher:
         self._watch_task = None
         self._stop_event = None
         logger.debug("File watcher stopped")
+
+    async def _signal_shutdown(self) -> None:
+        """Signal all connected clients to disconnect."""
+        shutdown_msg = {"type": "shutdown"}
+        for queue in list(self.clients):
+            with suppress(asyncio.QueueFull, RuntimeError):
+                queue.put_nowait(shutdown_msg)
 
     async def _watch_all_directories(self) -> None:
         """Watch all directories for changes."""

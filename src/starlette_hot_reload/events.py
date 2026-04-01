@@ -48,8 +48,16 @@ class HotReloadEvents:
                 while True:
                     # Wait for a message from the watcher
                     message = await queue.get()
+
+                    # Check for shutdown signal
+                    if message.get("type") == "shutdown":
+                        break
+
                     # Format as SSE: data: {...}\n\n
                     yield f"data: {json.dumps(message)}\n\n"
+            except asyncio.CancelledError:
+                # Client disconnected, exit gracefully
+                pass
             finally:
                 # Clean up when client disconnects
                 await self.watcher.remove_client(queue)

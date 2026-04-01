@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -76,6 +78,16 @@ class HotReloadLifespanMiddleware:
                 self._started = False
                 logger.debug("File watcher stopped")
 
-            await send(message)
+            with suppress(asyncio.CancelledError):
+                await send(message)
 
-        await self.app(scope, wrapped_receive, wrapped_send)
+        try:
+            await self.app(scope, wrapped_receive, wrapped_send)
+        except asyncio.CancelledError:
+            # Server is shutting down, stop watcher if running
+            if self._started:
+                logger.debug("Stopping file watcher (cancelled)")
+                with suppress(asyncio.CancelledError):
+                    await self.watcher.stop()
+                self._started = False
+            raise
