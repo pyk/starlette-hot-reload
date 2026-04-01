@@ -12,7 +12,6 @@ from pathlib import Path
 
 import httpx
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -22,39 +21,11 @@ def test_force_quit_exits_with_connected_sse_client() -> None:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
 
-    server_code = """
-from __future__ import annotations
-
-import sys
-
-import uvicorn
-from starlette.applications import Starlette
-from starlette.responses import HTMLResponse
-from starlette.routing import Route
-
-from starlette_hot_reload import HotReload
-
-
-async def homepage(request):
-    return HTMLResponse("<html><body>Hello</body></html>")
-
-
-app = Starlette(debug=True, routes=[Route("/", homepage)])
-HotReload(watch_dirs=["."]).setup(app)
-
-if __name__ == "__main__":
-    uvicorn.run(
-        app,
-        host="127.0.0.1",
-        port=int(sys.argv[1]),
-        log_config=None,
-    )
-"""
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
 
-    proc = subprocess.Popen(
-        [sys.executable, "-c", server_code, str(port)],
+    proc = subprocess.Popen(  # noqa: S603
+        [sys.executable, str(ROOT / "tests" / "test_server.py"), str(port)],
         cwd=ROOT,
         env=env,
         stdout=subprocess.PIPE,
@@ -77,18 +48,25 @@ if __name__ == "__main__":
                     httpx.RemoteProtocolError,
                 ):
                     if time.monotonic() >= deadline:
-                        raise TimeoutError("server did not start within 10 seconds")
+                        msg = "server did not start within 10 seconds"
+                        raise TimeoutError(msg) from None
                     time.sleep(0.1)
 
         sse_url = f"http://127.0.0.1:{port}/__starlette_hot_reload"
-        with httpx.Client(timeout=5.0) as client:
-            with client.stream("GET", sse_url) as response:
-                assert response.status_code == 200
+        with httpx.Client(timeout=5.0) as client, client.stream(
+            "GET",
+            sse_url,
+        ) as response:
+            if response.status_code != httpx.codes.OK:
+                msg = f"unexpected SSE status: {response.status_code}"
+                raise AssertionError(msg)
 
-                proc.send_signal(signal.SIGINT)
-                proc.wait(timeout=10)
+            proc.send_signal(signal.SIGINT)
+            proc.wait(timeout=10)
 
-        assert proc.returncode == 0
+        if proc.returncode != 0:
+            msg = f"server exited with {proc.returncode}"
+            raise AssertionError(msg)
     finally:
         if proc.poll() is None:
             proc.kill()
