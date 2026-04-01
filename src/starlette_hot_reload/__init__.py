@@ -2,10 +2,17 @@
 
 from typing import TYPE_CHECKING
 
+from starlette.routing import WebSocketRoute
+
+from starlette_hot_reload.middleware import HotReloadMiddleware
+from starlette_hot_reload.watcher import FileWatcher
+from starlette_hot_reload.websocket import HotReloadWebSocket
+
 if TYPE_CHECKING:
     from pathlib import Path
 
     from starlette.applications import Starlette
+    from starlette.websockets import WebSocket
 
 
 class HotReload:
@@ -54,6 +61,19 @@ class HotReload:
         """
         if not getattr(app, "debug", False):
             return
+
+        watcher = FileWatcher([str(d) for d in (self.watch_dirs or ["."])])
+
+        async def websocket_endpoint(websocket: WebSocket) -> None:
+            await HotReloadWebSocket(watcher).handle(websocket)
+
+        # Add the WebSocket route
+        app.routes.append(
+            WebSocketRoute(self.ws_path, websocket_endpoint, name="hot_reload_ws")
+        )
+
+        # Add the middleware
+        app.add_middleware(HotReloadMiddleware)
 
 
 __all__ = ["HotReload"]
