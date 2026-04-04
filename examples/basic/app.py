@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,9 +14,11 @@ from starlette.routing import BaseRoute, Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
-from starlette_hot_reload import HotReload
+from starlette_hot_reload import hot_reload
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from starlette.requests import Request
     from starlette.responses import HTMLResponse
 
@@ -31,7 +34,6 @@ templates_dir = Path(__file__).parent / "templates"
 static_dir = Path(__file__).parent / "static"
 
 templates = Jinja2Templates(directory=templates_dir)
-hot_reload = HotReload(watch_dirs=[templates_dir, static_dir])
 
 
 async def homepage(request: Request) -> HTMLResponse:
@@ -57,11 +59,18 @@ routes: list[BaseRoute] = [
 ]
 
 
+@asynccontextmanager
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
+    """Run hot reload alongside the Starlette app lifespan."""
+    async with hot_reload(app=app, watch_dirs=[templates_dir, static_dir]):
+        yield
+
+
 app = Starlette(
     debug=True,
     routes=routes,
+    lifespan=lifespan,
 )
-hot_reload.setup(app)
 
 
 if __name__ == "__main__":

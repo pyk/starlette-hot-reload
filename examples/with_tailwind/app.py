@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,7 +15,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette_tailwindcss import tailwind
 
-from starlette_hot_reload import HotReload
+from starlette_hot_reload import hot_reload
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -37,7 +37,6 @@ static_dir = example_dir / "static"
 styles = example_dir / "globals.css"
 
 templates = Jinja2Templates(directory=templates_dir)
-hot_reload = HotReload(watch_dirs=[example_dir])
 
 
 async def homepage(request: Request) -> HTMLResponse:
@@ -57,13 +56,19 @@ routes = [
 
 @asynccontextmanager
 async def lifespan(app: Starlette) -> AsyncIterator[None]:
-    """Run Tailwind alongside the Starlette app lifespan."""
-    async with tailwind(
-        watch=app.debug,
-        version="v4.2.2",
-        input=styles,
-        output=static_dir / "css" / "output.{build_id}.css",
-    ) as assets:
+    """Run hot reload and Tailwind alongside the Starlette app lifespan."""
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(
+            hot_reload(app=app, watch_dirs=[example_dir]),
+        )
+        assets = await stack.enter_async_context(
+            tailwind(
+                watch=app.debug,
+                version="v4.2.2",
+                input=styles,
+                output=static_dir / "css" / "output.{build_id}.css",
+            ),
+        )
         app.state.tailwind = assets
         yield
 
@@ -73,7 +78,6 @@ app = Starlette(
     routes=routes,
     lifespan=lifespan,
 )
-hot_reload.setup(app)
 
 
 if __name__ == "__main__":
