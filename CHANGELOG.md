@@ -1,0 +1,28 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.1.0] - 2026-04-04
+
+### Added
+
+- Initial release of `starlette-hot-reload`.
+- `HotReload.setup()` integration that only activates when `debug=True`.
+- Automatic HTML script injection through ASGI middleware.
+- Server-Sent Events based live reload support without WebSocket dependencies.
+- Smart reload behavior that refreshes CSS in place and reloads the page for
+  other file changes.
+- Automatic reconnect logic in the browser client with exponential backoff.
+- Configurable watched directories, SSE endpoint path, and filesystem polling
+  interval.
+- Type-annotated package layout with a minimal dependency footprint beyond
+  Starlette.
+
+[Unreleased]: https://github.com/pyk/starlette-hot-reload/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/pyk/starlette-hot-reload/releases/tag/v0.1.0
