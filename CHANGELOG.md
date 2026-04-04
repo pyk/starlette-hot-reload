@@ -8,6 +8,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-04
+
+### Added
+
+- `examples/with_tailwind` showing hot reload composed with Tailwind CSS via
+  Starlette lifespan.
+
+### Changed
+
+- Switched to an explicit lifespan-based `hot_reload(...)` API to match
+  Starlette's application model.
+- Updated examples and documentation to compose hot reload inside the app
+  lifespan, including `AsyncExitStack` for multiple resources.
+
+### Removed
+
+- `HotReload.setup()` public API.
+
 ## [0.1.0] - 2026-04-04
 
 ### Added
@@ -24,5 +42,6 @@ and this project adheres to
 - Type-annotated package layout with a minimal dependency footprint beyond
   Starlette.
 
-[Unreleased]: https://github.com/pyk/starlette-hot-reload/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/pyk/starlette-hot-reload/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/pyk/starlette-hot-reload/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pyk/starlette-hot-reload/releases/tag/v0.1.0
