@@ -42,7 +42,14 @@ class FileWatcher:
         self.watch_dirs = [
             Path(d) if isinstance(d, str) else d for d in (watch_dirs or ["."])
         ]
-        self.extensions = extensions or [".py", ".html", ".js", ".css", ".json"]
+        self.extensions = extensions or [
+            ".py",
+            ".html",
+            ".jinja",
+            ".js",
+            ".css",
+            ".json",
+        ]
         self.poll_interval = poll_interval
         self.clients: set[asyncio.Queue[dict]] = set()
         self._stop_event: anyio.Event | None = None
@@ -150,7 +157,7 @@ class FileWatcher:
                     continue
                 signal.signal(signum, self._handle_signal)
                 self._signal_handlers[signum] = previous
-            except (ValueError, OSError, RuntimeError):
+            except ValueError, OSError, RuntimeError:
                 # Signals are not always available, e.g. in non-main threads.
                 continue
 
@@ -160,7 +167,7 @@ class FileWatcher:
             try:
                 if signal.getsignal(signum) is self._handle_signal:
                     signal.signal(signum, cast("signal.Handlers", previous))
-            except (ValueError, OSError, RuntimeError):
+            except ValueError, OSError, RuntimeError:
                 continue
         self._signal_handlers.clear()
 

@@ -16,8 +16,12 @@ _EVENTS_URL_PLACEHOLDER = "__STARLETTE_HOT_RELOAD_EVENTS_URL__"
 @lru_cache(maxsize=1)
 def _load_client_script() -> str:
     """Load the client-side script from the package resources."""
-    return files("starlette_hot_reload").joinpath("client.js").read_text(
-        encoding="utf-8",
+    return (
+        files("starlette_hot_reload")
+        .joinpath("client.js")
+        .read_text(
+            encoding="utf-8",
+        )
     )
 
 
