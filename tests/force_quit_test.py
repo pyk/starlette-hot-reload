@@ -53,10 +53,13 @@ def test_force_quit_exits_with_connected_sse_client() -> None:
                     time.sleep(0.1)
 
         sse_url = f"http://127.0.0.1:{port}/__starlette_hot_reload"
-        with httpx.Client(timeout=5.0) as client, client.stream(
-            "GET",
-            sse_url,
-        ) as response:
+        with (
+            httpx.Client(timeout=5.0) as client,
+            client.stream(
+                "GET",
+                sse_url,
+            ) as response,
+        ):
             if response.status_code != httpx.codes.OK:
                 msg = f"unexpected SSE status: {response.status_code}"
                 raise AssertionError(msg)
