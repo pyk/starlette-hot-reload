@@ -1,32 +1,24 @@
 <h3 align="center">starlette-hot-reload</h3>
 
 <p align="center">
-    Hot Reload for Starlette's Static & Template Files
-<p>
+    Hot reload for Starlette templates and static files
+</p>
 
 <p align="center">
 <a href="https://pypi.org/project/starlette-hot-reload/"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/starlette-hot-reload?style=flat&labelColor=%23000000&color=%23000000"></a> <a href="https://pypi.org/project/starlette-hot-reload/"><img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/starlette-hot-reload?style=flat&labelColor=000000&color=000000"></a> <a href="https://pypi.org/project/starlette-hot-reload/"><img alt="PyPI - License" src="https://img.shields.io/pypi/l/starlette-hot-reload?labelColor=000&color=000"></a>
 </p>
 
-#### Overview
+### Overview
 
-`starlette-hot-reload` is a lightweight hot reload utility for
-[Starlette](https://starlette.dev/) that provides fast in-browser reloads for
-templates and static files.
+`starlette-hot-reload` reloads the browser when your Starlette templates or
+static assets change. It injects a small client script into HTML responses and
+uses Server-Sent Events (SSE) to notify the browser about changes.
 
 [Demo](https://x.com/sepyke/status/2039360612229374135)
 
-It integrates directly with your Starlette app and provides:
+### Quick Start
 
-- Automatic HTML injection via middleware.
-- Server-Sent Events (SSE) based live reload (no WebSocket dependencies).
-- Smart updates, CSS changes reload without a full page refresh.
-- Automatic reconnection with exponential backoff.
-- Fully typed, following Starlette patterns.
-- Zero additional dependencies beyond Starlette.
-- Explicit lifespan composition, matching Starlette's application model.
-
-### Installation
+Install the package:
 
 ```shell
 uv add starlette-hot-reload
@@ -34,19 +26,12 @@ uv add starlette-hot-reload
 pip install starlette-hot-reload
 ```
 
-### Example
+Enable it in your app lifespan:
 
 ```python
 from contextlib import asynccontextmanager
-
 from starlette.applications import Starlette
-from starlette.routing import Route
-
 from starlette_hot_reload import hot_reload
-
-routes = [
-    # your routes
-]
 
 @asynccontextmanager
 async def lifespan(app: Starlette):
@@ -55,54 +40,46 @@ async def lifespan(app: Starlette):
 
 app = Starlette(
     debug=True,
-    routes=routes,
     lifespan=lifespan,
 )
 ```
 
-Run the application using uvicorn:
+Run your app:
 
 ```shell
-$ uvicorn main:app
+uvicorn main:app
 ```
 
-### How it works
+### What You Get
 
-`starlette-hot-reload` updates the browser without restarting the server.
+- Reloads the browser when watched files change.
+- Refreshes CSS without a full page reload when only `.css` files change.
+- Injects the client script into HTML responses automatically.
+- Uses SSE, no websocket.
+- Composes with Starlette lifespan context managers.
+- Adds no extra runtime dependency beyond Starlette.
 
-It integrates into your app using middleware and a Server-Sent Events (SSE)
-endpoint.
+### Basic Usage
 
-- HTML responses are automatically modified to include a small client script.
-- The client connects to an SSE stream exposed by the app.
-- File changes trigger reload events:
-    - CSS changes update stylesheets in-place.
-    - Other changes trigger a full page reload.
-- The client automatically reconnects if the connection is lost.
-
-It complements:
-
-- ASGI server reload (`uvicorn --reload`)
-- Frontend build tools (Vite, Webpack, etc.)
-
-### Usage
-
-Hot reload is only active when `debug=True`.
+Hot reload only runs when `debug=True`.
 
 ```python
 app = Starlette(debug=True)
 ```
 
-You can control which directories are watched:
+Watch specific directories:
 
 ```python
 @asynccontextmanager
 async def lifespan(app: Starlette):
-    async with hot_reload(app=app, watch_dirs=["templates", "static", "assets"]):
+    async with hot_reload(
+        app=app,
+        watch_dirs=["templates", "static", "assets"],
+    ):
         yield
 ```
 
-You can customize the SSE endpoint path (default is `/__starlette_hot_reload`):
+Use a custom SSE endpoint:
 
 ```python
 async with hot_reload(
@@ -113,8 +90,7 @@ async with hot_reload(
     ...
 ```
 
-You can also tune how often the watcher scans for changes. Lower values make
-reloads feel faster, at the cost of a bit more filesystem polling:
+Tune filesystem polling:
 
 ```python
 async with hot_reload(
@@ -125,8 +101,7 @@ async with hot_reload(
     ...
 ```
 
-If you compose hot reload with other lifespan-managed resources, use
-`contextlib.AsyncExitStack`:
+Compose it with other lifespan resources using `AsyncExitStack`:
 
 ```python
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -134,13 +109,73 @@ from contextlib import AsyncExitStack, asynccontextmanager
 @asynccontextmanager
 async def lifespan(app: Starlette):
     async with AsyncExitStack() as stack:
-        await stack.enter_async_context(hot_reload(app=app, watch_dirs=["templates", "static"]))
+        await stack.enter_async_context(
+            hot_reload(app=app, watch_dirs=["templates", "static"])
+        )
         yield
 ```
 
-#### Debug Logging
+### How It Works
 
-To enable debug logging, configure Python's logging module:
+When you request an HTML page, the middleware injects a small client script into
+the response body. That script opens an SSE connection to the app.
+
+The file watcher polls the directories you configured. When a file changes:
+
+- CSS-only changes trigger a stylesheet refresh.
+- Other watched changes trigger a full page reload.
+
+This package complements server reload tools such as `uvicorn --reload`. It does
+not restart your Python process.
+
+### Limits
+
+- Hot reload is disabled when `debug=False`.
+- The watcher uses polling, not native OS file notifications.
+- Python code changes reload the browser page, but they do not reload server
+  state or restart the app process.
+- Script injection targets HTML responses. Non-HTML responses are left alone.
+
+### Examples
+
+The repository includes example apps under `examples/`.
+
+#### `examples/basic`
+
+This example shows the smallest Starlette setup with:
+
+- Jinja templates
+- Static files
+- `hot_reload()` in the app lifespan
+
+Run it from the repository root:
+
+```shell
+uv run python -m examples.basic.app
+```
+
+Open `http://127.0.0.1:3000` and edit files in `examples/basic/templates` or
+`examples/basic/static`.
+
+#### `examples/with_tailwind`
+
+This example shows how to compose `starlette-hot-reload` with
+`starlette-tailwindcss`.
+
+It watches the whole example directory so changes to templates, CSS, and built
+assets all trigger the right browser update.
+
+Run it from the repository root:
+
+```shell
+uv run python -m examples.with_tailwind.app
+```
+
+Open `http://127.0.0.1:3000` and edit files in `examples/with_tailwind/`.
+
+### Debug Logging
+
+If you want watcher and SSE logs during development, enable Python logging:
 
 ```python
 import logging
@@ -148,9 +183,23 @@ import sys
 
 logging.basicConfig(
     level=logging.DEBUG,
-    # ...
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stderr,
 )
 ```
+
+### More Starlette Packages
+
+If you are building server-rendered Starlette apps, these packages fit well with
+`starlette-hot-reload`:
+
+- [starlette-tailwindcss](https://github.com/pyk/starlette-tailwindcss):
+  Tailwind CSS integration for Starlette apps
+- [starlette-html-stories](https://github.com/pyk/starlette-html-stories):
+  Storybook-like development tools for `starlette-html` components
+- [starlette-html](https://github.com/pyk/starlette-html): Python-first HTML DSL
+  for server-rendered UI in Starlette
 
 ### License
 
