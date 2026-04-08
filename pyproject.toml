@@ -64,8 +64,11 @@ ignore = [
 ]
 exclude = ["external/**"]
 
-[tool.ruff.lint.pylint]
-max-args = 5
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    # Allow usage of assert statement in test files
+    "S101"
+]
 
 # pytest - settings
 [tool.pytest.ini_options]
