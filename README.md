@@ -53,7 +53,6 @@ uvicorn main:app
 ### What You Get
 
 - Reloads the browser when watched files change.
-- Refreshes CSS without a full page reload when only `.css` files change.
 - Injects the client script into HTML responses automatically.
 - Uses SSE, no websocket.
 - Composes with Starlette lifespan context managers.
@@ -122,8 +121,7 @@ the response body. That script opens an SSE connection to the app.
 
 The file watcher polls the directories you configured. When a file changes:
 
-- CSS-only changes trigger a stylesheet refresh.
-- Other watched changes trigger a full page reload.
+- Watched changes trigger a full page reload.
 
 This package complements server reload tools such as `uvicorn --reload`. It does
 not restart your Python process.
@@ -163,7 +161,7 @@ This example shows how to compose `starlette-hot-reload` with
 `starlette-tailwindcss`.
 
 It watches the whole example directory so changes to templates, CSS, and built
-assets all trigger the right browser update.
+assets all trigger a browser reload.
 
 Run it from the repository root:
 
