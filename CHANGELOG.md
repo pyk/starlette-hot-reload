@@ -8,10 +8,23 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-08
+
+### Added
+
+- Expanded the project metadata published in `pyproject.toml`, including
+  maintainers, project URLs, and classifier details.
+- Refreshed the README with clearer installation, usage, limits, and example
+  documentation.
+
 ### Changed
 
-- Removed the CSS-only stylesheet refresh path so all watched file changes now
-  trigger a full page reload.
+- Reduced watcher shutdown logging to a single debug log entry.
+
+### Removed
+
+- The CSS-only stylesheet refresh path. All watched file changes now trigger a
+  full page reload.
 
 ## [0.2.1] - 2026-04-06
 
@@ -53,7 +66,8 @@ and this project adheres to
 - Type-annotated package layout with a minimal dependency footprint beyond
   Starlette.
 
-[Unreleased]: https://github.com/pyk/starlette-hot-reload/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/pyk/starlette-hot-reload/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/pyk/starlette-hot-reload/releases/tag/v0.3.0
 [0.2.1]: https://github.com/pyk/starlette-hot-reload/releases/tag/v0.2.1
 [0.2.0]: https://github.com/pyk/starlette-hot-reload/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pyk/starlette-hot-reload/releases/tag/v0.1.0
