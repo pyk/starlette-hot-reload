@@ -103,32 +103,23 @@ class FileWatcher:
 
     async def stop(self) -> None:
         """Stop watching files."""
-        logger.debug("stop() called, _watch_task is None: %s", self._watch_task is None)
         if self._watch_task is None:
-            logger.debug("stop(): watch_task is None, returning early")
             return
 
         logger.debug("Stopping file watcher")
 
         # Signal that we're shutting down (this allows SSE connections to close)
-        logger.debug("stop(): Setting shutdown event")
         self._shutdown_event.set()
-        logger.debug("stop(): shutdown_event is set: %s", self._shutdown_event.is_set())
 
         if self._stop_event is not None:
-            logger.debug("stop(): Setting stop event")
             self._stop_event.set()
 
         # Signal all clients to disconnect
-        logger.debug("stop(): Signaling %d clients", len(self.clients))
         await self._signal_shutdown()
-        logger.debug("stop(): Done signaling clients")
 
         self._watch_task.cancel()
-        logger.debug("stop(): Cancelled watch task, awaiting...")
         with suppress(asyncio.CancelledError):
             await self._watch_task
-        logger.debug("stop(): Watch task awaited")
 
         self._remove_signal_handlers()
         self._watch_task = None
@@ -136,7 +127,6 @@ class FileWatcher:
         self._shutdown_event.clear()
         self._loop = None
         self._shutdown_task = None
-        logger.debug("File watcher stopped")
 
     async def _signal_shutdown(self) -> None:
         """Signal all connected clients to disconnect."""
@@ -173,7 +163,6 @@ class FileWatcher:
 
     def _handle_signal(self, signum: int, frame: object | None) -> None:
         """Bridge process shutdown signals into the async shutdown path."""
-        logger.debug("Received shutdown signal: %s", signum)
         self._shutdown_event.set()
         if self._stop_event is not None:
             self._stop_event.set()
