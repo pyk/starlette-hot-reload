@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
-from typing import TYPE_CHECKING
+from pathlib import Path
+
+import pytest
 
 from starlette_hot_reload.watcher import FileWatcher
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def test_default_extensions_include_jinja(tmp_path: Path) -> None:
@@ -32,3 +32,17 @@ def test_default_extensions_include_jinja(tmp_path: Path) -> None:
     if watcher._scan_changes(tmp_path, file_mtimes) != [template]:  # noqa: SLF001
         msg = "expected changed .jinja file to be detected"
         raise AssertionError(msg)
+
+
+@pytest.mark.asyncio
+async def test_css_changes_trigger_full_reload() -> None:
+    """CSS changes should use the same reload event as other files."""
+    watcher = FileWatcher()
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+
+    await watcher.add_client(queue)
+    await watcher._notify_all("reload", [Path("styles.css")])  # noqa: SLF001
+
+    message = await queue.get()
+    assert message["type"] == "reload"
+    assert message["files"] == ["styles.css"]
