@@ -1,4 +1,14 @@
-# Starlette Hot Reload
+<h3 align="center">starlette-hot-reload</h3>
+
+<p align="center">
+    Hot Reload for Starlette's Static & Template Files
+<p>
+
+<p align="center">
+<a href="https://pypi.org/project/starlette-hot-reload/"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/starlette-hot-reload?style=flat&labelColor=%23000000&color=%23000000"></a> <a href="https://pypi.org/project/starlette-hot-reload/"><img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/starlette-hot-reload?style=flat&labelColor=000000&color=000000"></a> <a href="https://pypi.org/project/starlette-hot-reload/"><img alt="PyPI - License" src="https://img.shields.io/pypi/l/starlette-hot-reload?labelColor=000&color=000"></a>
+</p>
+
+#### Overview
 
 `starlette-hot-reload` is a lightweight hot reload utility for
 [Starlette](https://starlette.dev/) that provides fast in-browser reloads for
@@ -16,7 +26,7 @@ It integrates directly with your Starlette app and provides:
 - Zero additional dependencies beyond Starlette.
 - Explicit lifespan composition, matching Starlette's application model.
 
-## Installation
+### Installation
 
 ```shell
 uv add starlette-hot-reload
@@ -24,7 +34,7 @@ uv add starlette-hot-reload
 pip install starlette-hot-reload
 ```
 
-## Example
+### Example
 
 ```python
 from contextlib import asynccontextmanager
@@ -56,7 +66,7 @@ Run the application using uvicorn:
 $ uvicorn main:app
 ```
 
-## How it works
+### How it works
 
 `starlette-hot-reload` updates the browser without restarting the server.
 
@@ -75,7 +85,7 @@ It complements:
 - ASGI server reload (`uvicorn --reload`)
 - Frontend build tools (Vite, Webpack, etc.)
 
-## Usage
+### Usage
 
 Hot reload is only active when `debug=True`.
 
@@ -128,7 +138,7 @@ async def lifespan(app: Starlette):
         yield
 ```
 
-### Debug Logging
+#### Debug Logging
 
 To enable debug logging, configure Python's logging module:
 
@@ -142,6 +152,6 @@ logging.basicConfig(
 )
 ```
 
-## License
+### License
 
 MIT
