@@ -236,12 +236,8 @@ class FileWatcher:
                 changes = self._scan_changes(watch_dir, file_mtimes)
 
                 if changes:
-                    # Determine if we need full reload or just CSS refresh
-                    css_only = all(change.suffix == ".css" for change in changes)
-                    change_type = "css" if css_only else "reload"
-
                     # Notify all clients
-                    await self._notify_all(change_type, changes)
+                    await self._notify_all("reload", changes)
 
                 # Wait before next scan
                 await anyio.sleep(self.poll_interval)
@@ -296,7 +292,7 @@ class FileWatcher:
         """Notify all connected clients of a change.
 
         Args:
-            change_type: Type of change ('reload' or 'css').
+            change_type: Type of change.
             changes: List of changed file paths.
 
         """

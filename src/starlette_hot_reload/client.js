@@ -27,9 +27,6 @@
             if (data.type === "reload") {
                 console.log("[Hot Reload] Reloading page...");
                 window.location.reload();
-            } else if (data.type === "css") {
-                console.log("[Hot Reload] CSS changed");
-                refreshCSS();
             }
         };
 
@@ -54,18 +51,6 @@
         } else {
             console.log("[Hot Reload] Max reconnect attempts reached");
         }
-    }
-
-    function refreshCSS() {
-        const links = document.querySelectorAll(
-            'link[rel="stylesheet"]'
-        );
-        links.forEach(link => {
-            const href = link.href;
-            const url = new URL(href);
-            url.searchParams.set("_hot_reload", Date.now().toString());
-            link.href = url.toString();
-        });
     }
 
     connect();
