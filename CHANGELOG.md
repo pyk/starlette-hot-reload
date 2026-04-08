@@ -8,6 +8,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Removed the CSS-only stylesheet refresh path so all watched file changes now
+  trigger a full page reload.
+
 ## [0.2.1] - 2026-04-06
 
 ### Added
